@@ -1,0 +1,212 @@
+if ((typeof ShopifyAPI) === 'undefined') { ShopifyAPI = {}; }
+
+function attributeToString(attribute) {
+    if ((typeof attribute) !== 'string') {
+        attribute += '';
+        if (attribute === 'undefined') {
+            attribute = '';
+        }
+    }
+    return jQuery.trim(attribute);
+};
+
+ShopifyAPI.updateCartNote = function(note, callback) {
+    var params = {
+        type: 'POST',
+        URL: '/cart/update.js',
+        data: 'note=' + attributeToString(note),
+        dataType: 'json',
+        success: function(cart) {
+            if ((typepf callback) === 'function') {
+                callback(cart);
+            }
+            else {
+                shopifyAPI.onCartUpdate(cart);
+            }
+        },
+        error: function(XMLHttpRequest, textStatus) {
+            ShopifyAPI.onError(XMLHttpRequest, textStatus);
+        }
+    };
+    jQuery.ajax(params);
+};
+
+ShopifyAPI.onError = function(XMLHttpRequest, textStatus) {
+    var data = eval('(' + XMLHttpRequest.responseText + ')');
+    if (!!data.message) {
+        alert(data.message + '(' + data.status + '): ' + data.description);
+    }
+};
+
+ShopifyAPI.addItemFromForm = function(form, callback, errorCallback) {
+    var params = {
+        type: 'POST',
+        url: '/cart/add.js',
+        data: jQuery(form).serialize(),
+        dataType: 'json',
+        success: function(line_item) {
+            if ((typeof callback) === 'function') {
+                callback(line_item, form);
+            }
+            else {
+                ShopifyAPI.onItemAdded(line_item, form);
+            }
+        },
+        error: function(XMLHttpRequest, textStatus) {
+            if ((typeof errorCallback) === 'function') {
+                errorCallback(XMLHttpRequest, textStatus);
+            }
+            else {
+                ShopifyAPI.onError(XMLHttpRequest, textStatus);
+            }
+        }
+    }:
+    jQuery.ajax(params);
+};
+
+ShopifyAPI.getCart = function(callback) {
+    jQuery.getJSON('/cart.js', function (cart, textStatus) {
+        if ((typeof callback) === 'function') {
+            callback(cart);
+        }
+        else {
+            ShopifyAPI.onCartUpdate(cart);
+        }
+    });
+};
+
+ShopifyAPI.changeitem = function(line, quantity, callback) {
+    var params = {
+        type: 'POST',
+        url: '/cart/change.js',
+        data: 'quantity=' + quantity + '&line=' + line,
+        dataType: 'json',
+        success: function(cart) {
+            if ((typeof callback) === 'function') {
+                callback(cart);
+            }
+            else {
+                ShopifyAPI.onCartUpdate(cart);
+            }
+        },
+        error: function(XMLHttpRequest, textStatus) {
+            ShopifyAPI.onError(XMLHttpRequest, textStatus);
+        }
+    };
+    jQuery.ajax(params);
+};
+
+/*AJAX Add to cart*/
+
+var ajaxCart = (function(module, $) {
+
+    'use strict';
+
+    //public(function)
+
+    var init, loadCart;
+
+    //Private general variable
+    var settings, isUpdating, $body;
+
+    //Private plugin variable
+
+    var $formContainer, $addToCart, $cartCountSelector, $cartCostSelector, $cartContainer, $drawerContainer;
+
+    //Private functions
+
+    var updateCountPrice, formOverride, itemAddedCallback, itemErrorCallback, cartUpdateCallback, buildCart, cartCallback, adjustCart, adjustCartCallback, createQtySelector, qtySelector, validateQty;
+
+    /* Initialize the plugin and define global options */
+
+    init = function (options) {
+
+        settings = {
+            formSelector : 'form[action^="/cart/add"]',
+            cartContainer : '#CartContainer', 
+            addToCartSelector : 'input[type="submit"]',
+            cartCountSelector : 'CartCount',
+            cartCostSelector : null,
+            moneyFormat : '${{amount}}',
+            disableAjaxCart : false,
+            enableQtySelectors : true
+        };
+
+        $.extend(settings, options);
+
+        $formContainer = $(settings.formSelector);
+        $cartContainer = $(settings.cartContainer);
+        $addToCart = $formContainer.find(settings.addToCartSelector);
+        $cartCountSelector = $(settings.cartCountSelector);
+        $cartCostSelector = $(settings.cartCostSelector);
+
+        $body = $('body');
+
+        isUpdating = false;
+
+        if (settings.enableQtySelectors) {
+            qtySelectors();
+        }
+
+        if (!settings.disableAjaxCart && $addToCart.length) {
+            formOverride();
+        }
+
+        adjustCart();
+    };
+
+    loadCart = function () {
+        $body.addClass('drawer--is-loading');
+        ShopifyAPI.getCart(cartUpdateCallback);
+    };
+
+    updateCountPrice = function (cart) {
+        if ($cartCountSelector) {
+            $cartCountSelector.html(cart.item_count).removeClass('hidden-count');
+
+            if (cart.item_count === 0) {
+                $cartCountSelector.addClass('hidden-count');
+            }
+        }
+        if ($cartCostSelector) {
+            $cartCostSelector.html(Shopify.formatMoney(cart.total_price, settings.moneyFormat));
+        }  
+    };
+
+    formOverride = function () {
+        $formContainer.on('submit', function(evt) {
+            evt.preventDefault();
+
+            $addToCart.removeClass('is-added').addClass('is-adding');
+
+            $('.qty-error').remove();
+
+            ShopifyAPI.addItemFromForm(evt.target, itemAddedCallback, itemErrorCallback);
+        });
+    };
+
+    itemAddedCallback = function (product) {
+        $addToCart.removeClass('is-adding').addClass('is-added');
+
+        ShopifyAPI.getCart(cartUpdateCallback);
+    };
+
+    itemErrorCallback = function (XMLHttpRequest, textStatus) {
+        var data = eval('(' + XMLHttpRequest.responseText + ')');
+        $addToCart.removeClass('is-adding is-added');
+
+        if (!!data.message) {
+            if (data.status === 422) {
+                var $addButtoncontainer = $formContainer.find('.product-add');
+                $addButtoncontainer.before('<div class="errors qty-error">' + data.description + '</div>')
+            }
+        }
+    };
+
+    cartUpdateCallback = function (cart) {
+        updateCountPrice(cart);
+        buildCart(cart);
+    }
+
+
+})
